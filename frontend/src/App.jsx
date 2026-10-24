@@ -167,7 +167,50 @@ export default function RocketLander() {
   const game = useRef(newGame());
   const keys = useRef(new Set());
   const [hud, setHud] = useState({});
+  
+   const [aiMode, setAiMode] = useState(false);
+  const aiModeRef = useRef(false);
+  const aiActionRef = useRef(0);
+  async function getAIAction() {
+  const g = game.current;
+  const r = g.r;
+  const pad = g.terrain.pad;
 
+  if (r.status !== "flying") return;
+
+  const observation = [
+    (r.x - (pad.x1 + pad.x2) / 2) / (W / 2),
+    (pad.y - r.y) / (H / 2),
+    r.vx / 100,
+    r.vy / 100,
+    r.a,
+    r.w,
+    0,
+    0,
+  ];
+
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:5000/api/predict",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ observation }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    aiActionRef.current = data.action;
+  } catch (error) {
+    console.error("AI prediction failed:", error);
+  }
+}
   useEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
     const onDown = (e) => {
@@ -181,10 +224,34 @@ export default function RocketLander() {
     window.addEventListener("keyup", onUp);
 
     let last = performance.now(), raf, hudTimer = 0;
+    let aiTimer = setInterval(() => {
+  if (aiModeRef.current && game.current.r.status === "flying") {
+    getAIAction();
+  }
+}, 150);
     const loop = (now) => {
       const dt = Math.min(0.033, (now - last) / 1000);
       last = now;
       step(game.current, keys.current, dt);
+      if (aiModeRef.current) {
+  keys.current.clear();
+
+  switch (aiActionRef.current) {
+    case 1:
+      keys.current.add("ArrowLeft");
+      break;
+    case 2:
+      keys.current.add("ArrowUp");
+      break;
+    case 3:
+      keys.current.add("ArrowRight");
+      break;
+    default:
+      break;
+  }
+}
+
+step(game.current, keys.current, dt);
       draw(ctx, game.current);
       hudTimer += dt;
       if (hudTimer > 0.08) {
@@ -201,6 +268,7 @@ export default function RocketLander() {
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
+
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
     };
@@ -217,8 +285,40 @@ export default function RocketLander() {
 
   return (
     <div style={{ display: "flex", gap: 16, flexWrap: "wrap", padding: 16, background: "#070b16", minHeight: "70vh", color: "#e8edf7", fontFamily: "system-ui, sans-serif" }}>
-      <canvas ref={canvasRef} width={W} height={H}
-        style={{ width: "100%", maxWidth: W, borderRadius: 12, border: "1px solid #1d2a47" }} />
+        <button
+  onClick={() => {
+    const nextMode = !aiMode;
+    setAiMode(nextMode);
+    aiModeRef.current = nextMode;
+    aiActionRef.current = 0;
+    keys.current.clear();
+
+    if (nextMode) getAIAction();
+  }}
+  style={{
+    padding: "10px 18px",
+    borderRadius: 8,
+    border: "1px solid #3a527c",
+    background: aiMode ? "#14532d" : "#0f1730",
+    color: "#e8edf7",
+    cursor: "pointer",
+  }}
+>
+  {aiMode ? "🤖 AI Mode ON" : "🎮 Manual Mode"}
+</button>
+
+<canvas
+  ref={canvasRef}
+  width={W}
+  height={H}
+  style={{
+    width: "100%",
+    maxWidth: W,
+    borderRadius: 12,
+    border: "1px solid #1d2a47",
+  }}
+/>
+     
       <div style={{ width: "100%", display: "flex", flexWrap: "wrap", gap: 10 }}>
         {rows.map(([label, val, color]) => (
           <div key={label} style={{ background: "#0f1730", borderRadius: 10, padding: "8px 12px" }}>
