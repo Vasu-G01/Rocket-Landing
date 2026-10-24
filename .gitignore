@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# React / Node.js
+node_modules/
+dist/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Machine Learning generated models
+*.pkl
+
+# IDE settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
