@@ -1,0 +1,40 @@
+<<<<<<< HEAD
+=======
+
+/* App.css */
+
+/* Main application wrapper */
+#root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+}
+
+/* Keep form controls consistent */
+button {
+  font-family: inherit;
+}
+
+/* Smooth interactions */
+button,
+.metric-card,
+.panel {
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Canvas responsiveness */
+.simulation-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Remove default heading and paragraph spacing issues */
+h1,
+h2,
+h3,
+h4,
+p {
+  overflow-wrap: anywhere;
+}
+>>>>>>> f498b6e78d57c5c6ab3b2c6e354977aaade75ba9
