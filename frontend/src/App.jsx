@@ -661,7 +661,6 @@ function HudRow({ icon, label, value }) {
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
-=======
 
 // ---------- Tunable physics parameters (px, seconds, kg-ish units) ----------
 const W = 1080, H = 560;
@@ -693,139 +692,50 @@ function makeTerrain() {
   return { pts, seg, pad: { x1: pts[start].x, x2: pts[start + 4].x, y: padY } };
 }
 
-function groundY(t, x) {
-  x = ((x % W) + W) % W;
-  const i = Math.min(t.pts.length - 2, Math.floor(x / t.seg));
-  const a = t.pts[i], b = t.pts[i + 1];
-  return a.y + ((x - a.x) / (b.x - a.x)) * (b.y - a.y);
-}
+const W = 1080;
+const H = 560;
+const GRAVITY = 60;
+const DRY_MASS = 1000;
+const FUEL_START = 300;
+const MAX_THRUST = 125000;
+const BURN_RATE = 20;
+const TORQUE = 2.6;
 
-// ---------- Initial state: random position, velocity and angle ----------
-function newGame() {
-  const rnd = (a, b) => a + Math.random() * (b - a);
-  return {
-    terrain: makeTerrain(),
-    stars: Array.from({ length: 90 }, () => ({ x: rnd(0, W), y: rnd(0, H * 0.6), r: rnd(0.6, 1.6) })),
-    r: {
-      x: rnd(80, W - 80), y: 70,
-      vx: rnd(-60, 60), vy: rnd(0, 40),
-      a: rnd(-Math.PI / 2, Math.PI / 2), w: rnd(-0.5, 0.5),
-      fuel: FUEL_START, throttle: 0, status: "flying", msg: "",
-    },
-  };
-}
+const GROUND_Y = H - 80;
+const PAD_HALF = 65; // landing pad is 130px wide
+const LIMIT_VY = 45;
+const LIMIT_VX = 25;
+const LIMIT_RAD = 0.21; // ~12 degrees
+const LIMIT_DEG = (LIMIT_RAD * 180) / Math.PI;
 
-// feet (left, right) and nose in the rocket's local frame
-const LOCAL = [[-14, 24], [14, 24], [0, -26]];
-const toWorld = (r, [lx, ly]) => ({
-  x: r.x + lx * Math.cos(r.a) - ly * Math.sin(r.a),
-  y: r.y + lx * Math.sin(r.a) + ly * Math.cos(r.a),
+const rand = (min, max) => min + Math.random() * (max - min);
+
+// Both the rocket and the landing pad are spawned at random
+// positions inside the screen bounds on every new game.
+const randomPadX = () => rand(PAD_HALF + 50, W - PAD_HALF - 50);
+// The rocket keeps clear of the HUD overlays so it is always visible,
+// and is launched with a random sideways drift.
+const randomStart = () => ({
+  x: rand(W * 0.32, W * 0.68),
+  y: rand(70, 300),
+  vx: (Math.random() < 0.5 ? -1 : 1) * rand(25, 55),
 });
 
-// ---------- Physics step ----------
-function step(g, keys, dt) {
-  const r = g.r;
-  if (r.status !== "flying") return;
+const newRocket = () => {
+  const s = randomStart();
+  return {
+    x: s.x, y: s.y, vx: s.vx, vy: 0, a: 0, w: 0,
+    fuel: FUEL_START, throttle: 0, t: 0,
+    status: "FLYING", msg: "Mission in progress",
+  };
+};
 
-  // controls
-  const wantThrust = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
-  const turn = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
+const initialTelemetry = {
+  x: W / 2, vx: 0, vy: 0, angle: 0, w: 0, speed: 0, fuel: FUEL_START, alt: 0,
+  status: "FLYING", throttle: 0, time: 0, msg: "",
+};
 
-  r.throttle = wantThrust && r.fuel > 0 ? 1 : 0;
-  const mass = DRY_MASS + r.fuel;
-
-  // thrust acts along the nose direction (angle 0 = pointing up)
-  const accel = (MAX_THRUST * r.throttle) / mass;
-  const ax = Math.sin(r.a) * accel;
-  const ay = -Math.cos(r.a) * accel + GRAVITY;
-
-  r.vx += ax * dt;
-  r.vy += ay * dt;
-  r.x += r.vx * dt;
-  r.y += r.vy * dt;
-  r.x = ((r.x % W) + W) % W; // wrap around horizontally
-
-  // rotation
-  if (turn && r.fuel > 0) { r.w += turn * TORQUE * dt; r.fuel -= RCS_BURN * dt; }
-  r.w *= 1 - ANG_DAMP * dt;
-  r.a += r.w * dt;
-
-  // fuel
-  r.fuel = Math.max(0, r.fuel - BURN_RATE * r.throttle * dt);
-
-  // collision: any foot or the nose below the ground
-  const { pad } = g.terrain;
-  const touching = LOCAL.some((p) => { const q = toWorld(r, p); return q.y >= groundY(g.terrain, q.x); });
-  if (touching) {
-    const feet = [toWorld(r, LOCAL[0]), toWorld(r, LOCAL[1])];
-    const onPad = feet.every((f) => f.x >= pad.x1 && f.x <= pad.x2);
-    const bad = [];
-    if (Math.abs(r.vy) > MAX_VY) bad.push("too fast vertically");
-    if (Math.abs(r.vx) > MAX_VX) bad.push("too fast sideways");
-    if (Math.abs(r.a) > MAX_ANGLE) bad.push("not upright");
-    if (!onPad) bad.push("missed the pad");
-    r.vx = r.vy = r.w = r.throttle = 0;
-    if (bad.length === 0) { r.status = "landed"; r.msg = "Landed safely"; }
-    else { r.status = "crashed"; r.msg = "Crashed: " + bad.join(", "); }
-  }
-}
-
-// ---------- Drawing ----------
-function draw(ctx, g) {
-  const { terrain, stars, r } = g;
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, "#03050f"); sky.addColorStop(1, "#0d1428");
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = "#fff";
-  stars.forEach((s) => { ctx.globalAlpha = 0.5 + s.r / 3; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); });
-  ctx.globalAlpha = 1;
-
-  // distant planet
-  ctx.fillStyle = "#2f7de1"; ctx.beginPath(); ctx.arc(W - 90, 90, 32, 0, 7); ctx.fill();
-  ctx.fillStyle = "#2fb58a"; ctx.beginPath(); ctx.ellipse(W - 96, 82, 16, 10, -0.4, 0, 7); ctx.fill();
-
-  // terrain
-  ctx.beginPath(); ctx.moveTo(0, H);
-  terrain.pts.forEach((p) => ctx.lineTo(p.x, p.y));
-  ctx.lineTo(W, H); ctx.closePath();
-  ctx.fillStyle = "#1b2438"; ctx.fill();
-  ctx.beginPath(); terrain.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-  ctx.strokeStyle = "#e8edf7"; ctx.lineWidth = 2; ctx.stroke();
-
-  // landing pad
-  const { pad } = terrain;
-  ctx.strokeStyle = "#f0a830"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(pad.x1, pad.y); ctx.lineTo(pad.x2, pad.y); ctx.stroke();
-  ctx.fillStyle = "#f0a830"; ctx.fillRect(pad.x1 - 1, pad.y, 3, 10); ctx.fillRect(pad.x2 - 1, pad.y, 3, 10);
-  ctx.font = "12px sans-serif"; ctx.textAlign = "center";
-  ctx.fillText("Landing pad", (pad.x1 + pad.x2) / 2, pad.y + 26);
-
-  // rocket
-  ctx.save();
-  ctx.translate(r.x, r.y); ctx.rotate(r.a);
-  if (r.throttle > 0) { // flame
-    ctx.fillStyle = "#ffb347";
-    ctx.beginPath(); ctx.moveTo(-7, 20); ctx.lineTo(0, 20 + 26 + Math.random() * 14); ctx.lineTo(7, 20); ctx.fill();
-  }
-  ctx.strokeStyle = "#cfd8ea"; ctx.lineWidth = 2; // legs
-  ctx.beginPath(); ctx.moveTo(-8, 14); ctx.lineTo(-14, 24); ctx.moveTo(8, 14); ctx.lineTo(14, 24); ctx.stroke();
-  ctx.fillStyle = r.status === "crashed" ? "#d9534f" : "#eef2fb";
-  ctx.beginPath(); ctx.roundRect(-10, -22, 20, 38, 6); ctx.fill();
-  ctx.fillStyle = "#3aa0ff"; ctx.beginPath(); ctx.arc(0, -8, 4, 0, 7); ctx.fill();
-  ctx.restore();
-
-  if (r.status !== "flying") {
-    ctx.fillStyle = r.status === "landed" ? "#5be3a0" : "#ff7a70";
-    ctx.font = "bold 28px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(r.msg, W / 2, H / 2 - 40);
-    ctx.fillStyle = "#c9d3ea"; ctx.font = "16px sans-serif";
-    ctx.fillText("Press R to try again", W / 2, H / 2 - 12);
-  }
-}
-
-// ---------- Component ----------
-export default function RocketLander() {
+export default function App() {
   const canvasRef = useRef(null);
   const game = useRef(newGame());
   const keys = useRef(new Set());
@@ -875,16 +785,65 @@ export default function RocketLander() {
   }
 }
   useEffect(() => {
-    const ctx = canvasRef.current.getContext("2d");
-    const onDown = (e) => {
-      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (["ArrowUp", "ArrowLeft", "ArrowRight", " "].includes(k)) e.preventDefault();
-      if (k === "r") game.current = newGame();
-      keys.current.add(k);
+    pausedRef.current = paused;
+  }, [paused]);
+
+  const reset = () => {
+    const pad = randomPadX();
+    setPadX(pad);
+    padRef.current = pad;
+
+    rocket.current = newRocket();
+    particles.current = [];
+    trail.current = [];
+    setHistory([]);
+    setMotion([]);
+    setPaused(false);
+    setTelemetry({
+      ...initialTelemetry,
+      x: rocket.current.x,
+      vx: rocket.current.vx,
+    });
+  };
+
+  useEffect(() => {
+    const down = (e) => {
+      keys.current[e.code] = true;
+      if (["ArrowUp", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+      if (e.code === "KeyR") reset();
+      if (e.code === "KeyP") setPaused((v) => !v);
     };
-    const onUp = (e) => keys.current.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
-    window.addEventListener("keydown", onDown);
-    window.addEventListener("keyup", onUp);
+    const up = (e) => {
+      keys.current[e.code] = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+
+    let frame;
+    let last = performance.now();
+    let clock = 0, sample = 0, tele = 0, trailT = 0;
+    let lastStatus = "FLYING";
+
+    const spawn = (p) => particles.current.push(p);
+
+    const explode = (x, y) => {
+      for (let i = 0; i < 70; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const sp = 40 + Math.random() * 260;
+        spawn({
+          kind: "fire", x, y,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 60,
+          life: 0.6 + Math.random() * 0.8, max: 1.4, size: 3 + Math.random() * 6,
+        });
+      }
+      for (let i = 0; i < 30; i++) {
+        spawn({
+          kind: "smoke", x: x + (Math.random() - 0.5) * 30, y,
+          vx: (Math.random() - 0.5) * 60, vy: -20 - Math.random() * 60,
+          life: 1.5 + Math.random(), max: 2.5, size: 8 + Math.random() * 10,
+        });
+      }
+    };
 
     let last = performance.now(), raf, hudTimer = 0;
     let aiTimer = setInterval(() => {
@@ -893,7 +852,16 @@ export default function RocketLander() {
   }
 }, 150);
     const loop = (now) => {
-      const dt = Math.min(0.033, (now - last) / 1000);
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        frame = requestAnimationFrame(loop);
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      const r = rocket.current;
+      // clamp dt: a throttled/background tab can hand out stale frame
+      // timestamps, which would otherwise produce a negative dt.
+      const dt = Math.min(Math.max((now - last) / 1000, 0), 0.04);
       last = now;
       step(game.current, keys.current, dt);
       if (aiModeRef.current) {
@@ -926,9 +894,11 @@ step(game.current, keys.current, dt);
           alt: game.current.terrain.pad.y - r.y,
         });
       }
-      raf = requestAnimationFrame(loop);
+
+      frame = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(loop);
+
+    frame = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
 
@@ -937,14 +907,42 @@ step(game.current, keys.current, dt);
     };
   }, []);
 
-  const ok = (v, lim) => (Math.abs(v) <= lim ? "#5be3a0" : "#ff7a70");
-  const rows = [
-    ["Vertical speed", (hud.vy ?? 0).toFixed(1), ok(hud.vy ?? 0, MAX_VY)],
-    ["Horizontal speed", (hud.vx ?? 0).toFixed(1), ok(hud.vx ?? 0, MAX_VX)],
-    ["Angle (deg)", (hud.angle ?? 0).toFixed(1), ok(((hud.angle ?? 0) * Math.PI) / 180, MAX_ANGLE)],
-    ["Height above pad", (hud.alt ?? 0).toFixed(0), "#e8edf7"],
-    ["Mass", (hud.mass ?? 0).toFixed(0), "#e8edf7"],
+  const t = telemetry;
+  const fuelPercent = Math.max(0, (t.fuel / FUEL_START) * 100);
+  const mm = String(Math.floor(t.time / 60)).padStart(2, "0");
+  const ss = String(Math.floor(t.time % 60)).padStart(2, "0");
+
+  // Live landing values: green while inside the limits, red as soon as they break one.
+  const conditions = [
+    {
+      label: "Vertical speed",
+      now: Math.abs(t.vy).toFixed(1),
+      limit: `≤ ${LIMIT_VY} m/s`,
+      ok: Math.abs(t.vy) <= LIMIT_VY,
+    },
+    {
+      label: "Horizontal speed",
+      now: Math.abs(t.vx).toFixed(1),
+      limit: `≤ ${LIMIT_VX} m/s`,
+      ok: Math.abs(t.vx) <= LIMIT_VX,
+    },
+    {
+      label: "Angle",
+      now: Math.abs(t.angle).toFixed(1),
+      limit: `≤ ${LIMIT_DEG.toFixed(0)}°`,
+      ok: Math.abs(t.angle) <= LIMIT_DEG,
+    },
+    {
+      label: "Over the pad",
+      now: String(Math.round(Math.abs(t.x - padX))),
+      limit: `± ${PAD_HALF} px`,
+      ok: Math.abs(t.x - padX) <= PAD_HALF,
+    },
   ];
+
+  const attempts = log.length;
+  const landings = log.filter((l) => l.status === "LANDED").length;
+  const best = attempts ? Math.max(...log.map((l) => l.score)) : "–";
 
   return (
     <div style={{ display: "flex", gap: 16, flexWrap: "wrap", padding: 16, background: "#070b16", minHeight: "70vh", color: "#e8edf7", fontFamily: "system-ui, sans-serif" }}>
@@ -995,11 +993,13 @@ step(game.current, keys.current, dt);
             <div style={{ height: "100%", width: `${((hud.fuel ?? FUEL_START) / FUEL_START) * 100}%`, background: "#f0a830", borderRadius: 5 }} />
           </div>
         </div>
-        <div style={{ fontSize: 13, color: "#8fa0c4", lineHeight: 1.5 }}>
-          Up / W / Space: thrust<br />
-          Left / Right (A / D): rotate<br />
-          R: new game<br /><br />
-          Land on the orange pad with vertical speed under {MAX_VY}, sideways speed under {MAX_VX} and tilt under 12°.
+        <p className="quote">“Small steps, big landings.”</p>
+        <div className="pilot">
+          <div className="creeper" aria-hidden="true" />
+          <div>
+            <strong>Mission 001</strong>
+            <span className={`tag ${paused ? "warn" : ""}`}>{paused ? "Paused" : "Live"}</span>
+          </div>
         </div>
 
       </div>
