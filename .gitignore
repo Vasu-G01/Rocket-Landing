@@ -17,7 +17,8 @@ dist/
 # Machine Learning generated models
 *.pkl
 backend/ml/models/*.zip
-backend/ml/models/training_*.json
+# live artifacts of a training run: status/meta json, stop flag, write temps
+backend/ml/models/training_*
 
 # IDE settings
 .vscode/

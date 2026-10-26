@@ -65,8 +65,10 @@ AstroLand-AI/
 │   ├── database/
 │   │   └── database.py
 │   └── tests/
-│       ├── test_physics.py
-│       └── test_prediction.py
+│       ├── test_physics.py        # dynamics + touchdown rules
+│       ├── test_prediction.py     # features, guidance, Pilot endpoints
+│       ├── test_api_flight.py     # full landing flown over HTTP (API must run)
+│       └── status_race_check.py   # manual check: status writes vs concurrent reads
 ├── .gitignore
 └── README.md
 ```
@@ -112,9 +114,12 @@ Useful flags:
 | Flag | Meaning |
 |---|---|
 | `--timesteps 150000` | quicker, less reliable run |
-| `--resume` | continue from the saved policy |
+| `--resume` | continue from the saved policy up to the same target |
 | `--eval-only` | evaluate the saved policy (no training) |
 | `--eval-episodes 50` | number of evaluation landings |
+
+`--resume` adds only the steps still missing to reach `--timesteps`; a run that is
+already at the target just evaluates.
 
 Training writes `ml/models/ppo_rocket_land.zip`, `ml/models/training_meta.json` and a
 live `ml/models/training_status.json` that the API/UI reads, so you can also press
@@ -154,6 +159,19 @@ Open http://localhost:5173 and press **🤖 AI pilot: ON**.
 ```powershell
 cd backend
 .venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+`test_api_flight.py` is skipped unless the API is running on :5000 — it flies 20
+landings through `/api/predict` exactly like the browser does, and reports the
+success rate of the loaded model.
+
+```powershell
+# end-to-end flight report without unittest
+.venv\Scripts\python.exe tests\test_api_flight.py
+
+# diagnostic: status file written while a concurrent reader hammers it
+# (guards against the Windows lock that once killed a training run)
+.venv\Scripts\python.exe tests\status_race_check.py
 ```
 
 ## Project Status

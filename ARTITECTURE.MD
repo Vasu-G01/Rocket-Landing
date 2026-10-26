@@ -104,8 +104,16 @@ AstroLand-AI/
 1. `ml/train_model.py` builds 4 parallel environments and trains PPO.
 2. Progress is written to `ml/models/training_status.json`, which the API exposes
    through `/api/train/status`.
-3. On completion the policy (`ppo_rocket_land.zip`) is evaluated and the API
-   hot-reloads it, so the next flight uses the new model.
+3. The status file is replaced atomically, with a short retry: Windows refuses to
+   rename a file another process (the API polling it) has open, so when it stays
+   busy the writer skips that update instead of overwriting in place — readers
+   either see the old JSON or the new one, never a half-written file. Status
+   reporting never aborts a run.
+4. On completion the policy (`ppo_rocket_land.zip`) is evaluated, a final
+   `running: false` status is written even if evaluation fails, and the API
+   hot-reloads the model, so the next flight uses it.
+5. `--resume` continues a saved policy and trains only the steps still missing
+   to reach `--timesteps`.
 
 ### API
 

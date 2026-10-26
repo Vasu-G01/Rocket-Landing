@@ -98,8 +98,12 @@ class StatusCallback(BaseCallback):
         self.seed = seed
         self.last_write = 0.0
         self.curriculum = -1
+        self.step0 = 0
 
     def _on_training_start(self) -> None:
+        # a resumed run starts far above zero: measure fps against the steps
+        # this session actually did, not the absolute counter
+        self.step0 = int(self.num_timesteps)
         self._write("Training started")
 
     def _on_step(self) -> bool:
@@ -128,7 +132,8 @@ class StatusCallback(BaseCallback):
         stats = combined_stats()
         step = int(self.num_timesteps)
         elapsed = time.time() - self.started_at
-        fps = step / elapsed if elapsed > 0 else 0.0
+        done = max(step - self.step0, 0)
+        fps = done / elapsed if elapsed > 0 else 0.0
         write_status(
             {
                 "running": running,
@@ -136,7 +141,7 @@ class StatusCallback(BaseCallback):
                 "message": message,
                 "step": step,
                 "total": self.total,
-                "percent": round(100.0 * step / self.total, 1),
+                "percent": round(min(100.0, 100.0 * step / self.total), 1),
                 "elapsed": round(elapsed, 1),
                 "eta": round((self.total - step) / fps, 1) if fps > 0 else None,
                 "fps": round(fps),
@@ -323,7 +328,9 @@ def main(argv: list | None = None) -> int:
                 "message": message,
                 "step": steps_done,
                 "total": args.timesteps,
-                "percent": round(100.0 * steps_done / max(args.timesteps, 1), 1),
+                "percent": round(
+                    min(100.0, 100.0 * steps_done / max(args.timesteps, 1)), 1
+                ),
                 "eval": eval_result,
                 "model_path": str(MODEL_PATH),
                 "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
